@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Système Inventaire 2025</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap');
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --primary: #0f172a; --accent: #3b82f6; --success: #10b981;
+            --danger: #ef4444; --text: #f8fafc; --border: #334155;
+        }
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: #020617; color: var(--text); padding: 2rem;
+        }
+        h1 { margin-bottom: 2rem; color: var(--accent); }
+        .card {
+            background: var(--primary); border: 1px solid var(--border);
+            border-radius: 12px; padding: 2rem; margin-bottom: 2rem;
+        }
+        label {
+            display: block; margin-bottom: 0.5rem; color: #94a3b8;
+            text-transform: uppercase; font-size: 0.875rem;
+        }
+        input, select {
+            width: 100%; padding: 0.875rem; background: #1e293b;
+            border: 2px solid var(--border); border-radius: 8px;
+            color: var(--text); font-size: 1rem; margin-bottom: 1rem;
+        }
+        .btn {
+            padding: 1rem 2rem; border: none; border-radius: 8px;
+            font-weight: 600; cursor: pointer; font-size: 1rem;
+        }
+        .btn-success { background: var(--success); color: var(--text); }
+        .alert { padding: 1rem; border-radius: 8px; margin-bottom: 1rem; }
+        .alert-success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid var(--success); color: var(--success);
+        }
+        .alert-danger {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--danger); color: var(--danger);
+        }
+    </style>
+</head>
+<body>
+    <h1>📦 Système Inventaire 2025</h1>
+    <div class="card">
+        <h2>Scanner</h2>
+        <div id="alerts"></div>
+        <label>Nom</label>
+        <input type="text" id="personName" placeholder="Votre nom">
+        <label>Rack</label>
+        <select id="rackLocation">
+            <option value="">-- Chargement... --</option>
+        </select>
+        <label>Code-Barre Produit</label>
+        <input type="text" id="barcodeInput" placeholder="Scannez le produit">
+        <div id="productInfo" style="display:none;">
+            <p>Produit: <strong id="displayProduct"></strong></p>
+        </div>
+        <label>Numéro de Lot</label>
+        <input type="text" id="lotInput" placeholder="Scannez le lot">
+        <label>Colis Complets</label>
+        <input type="number" id="colisComplets" value="0" min="0">
+        <label>Unités Libres</label>
+        <input type="number" id="unitesLibres" value="0" min="0">
+        <button class="btn btn-success" onclick="saveInventory()">✅ Enregistrer</button>
+    </div>
+    <script>
+        const API_URL = 'https://script.google.com/macros/s/AKfycbx_nQ6YziKry_runq_WTho1AY5whdpBzfBtFO-zWEpDRG_asd-YuN2nORO6dSiJr3L8PA/exec';
+        let products = [];
+        let emplacements = [];
+        let currentProduct = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('🚀 Page chargée');
+            loadData();
+            document.getElementById('barcodeInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') searchProduct();
+            });
+        });
+
+        async function loadData() {
+            try {
+                console.log('🔄 Chargement...');
+                const prodResp = await fetch(API_URL + '?action=getProduits');
+                const prodData = await prodResp.json();
+                if (prodData.success) {
+                    products = prodData.data;
+                    showAlert('✅ ' + products.length + ' produits chargés', 'success');
+                }
+                const emplResp = await fetch(API_URL + '?action=getEmplacements');
+                const emplData = await emplResp.json();
+                if (emplData.success) {
+                    emplacements = emplData.data;
+                    populateRacks();
+                }
+            } catch (error) {
+                console.error('❌ Erreur:', error);
+                showAlert('❌ Erreur: ' + error.message, 'danger');
+            }
+        }
+
+        function populateRacks() {
+            const select = document.getElementById('rackLocation');
+            select.innerHTML = '<option value="">-- Sélectionner --</option>';
+            emplacements.forEach(rack => {
+                const option = document.createElement('option');
+                option.value = rack;
+                option.textContent = rack;
+                select.appendChild(option);
+            });
+            console.log('✅ Racks chargés');
+        }
+
+        function searchProduct() {
+            const barcode = document.getElementById('barcodeInput').value.trim();
+            if (!barcode) return;
+            const product = products.find(p => 
+                String(p.Code_Barre).trim() === barcode || 
+                String(p.Code_Produit).trim() === barcode
+            );
+            if (product) {
+                currentProduct = product;
+                document.getElementById('displayProduct').textContent = product.Code_Produit;
+                document.getElementById('productInfo').style.display = 'block';
+                document.getElementById('lotInput').focus();
+                showAlert('✅ Produit trouvé', 'success');
+            } else {
+                showAlert('❌ Produit non trouvé', 'danger');
+            }
+        }
+
+        async function saveInventory() {
+            const person = document.getElementById('personName').value.trim();
+            const rack = document.getElementById('rackLocation').value;
+            const lot = document.getElementById('lotInput').value.trim();
+            const colis = parseInt(document.getElementById('colisComplets').value) || 0;
+            const unites = parseInt(document.getElementById('unitesLibres').value) || 0;
+            if (!person || !rack || !currentProduct || !lot) {
+                showAlert('❌ Remplissez tous les champs', 'danger');
+                return;
+            }
+            const colisage = parseFloat(currentProduct.Colisage) || 0;
+            const total = (colis * colisage) + unites;
+            const data = {
+                person, rack,
+                codeProduit: currentProduct.Code_Produit,
+                codeBarre: currentProduct.Code_Barre,
+                numeroLot: lot, colisage,
+                colisComplets: colis, unitesLibres: unites,
+                prixAchat: parseFloat(currentProduct.Prix_Achat) || 0,
+                quantite: total
+            };
+            try {
+                const response = await fetch(API_URL + '?action=addInventaire', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showAlert('✅ Inventaire enregistré !', 'success');
+                    document.getElementById('barcodeInput').value = '';
+                    document.getElementById('lotInput').value = '';
+                    document.getElementById('colisComplets').value = '0';
+                    document.getElementById('unitesLibres').value = '0';
+                    document.getElementById('productInfo').style.display = 'none';
+                    currentProduct = null;
+                    document.getElementById('barcodeInput').focus();
+                } else {
+                    showAlert('❌ Erreur: ' + result.error, 'danger');
+                }
+            } catch (error) {
+                showAlert('❌ Erreur: ' + error.message, 'danger');
+            }
+        }
+
+        function showAlert(message, type) {
+            const container = document.getElementById('alerts');
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-' + type;
+            alert.textContent = message;
+            container.innerHTML = '';
+            container.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+    </script>
+</body>
+</html>
